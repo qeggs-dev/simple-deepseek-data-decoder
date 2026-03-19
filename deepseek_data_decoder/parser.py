@@ -32,7 +32,7 @@ class ParseSession:
         self.search_template = self.template_env.from_string(format_package.search)
         self.search_unit_template = self.template_env.from_string(format_package.search_unit)
     
-    def parse_files(self, files: List[File]) -> str:
+    def parse_files(self, files: List[File]) -> list[str]:
         """处理文件列表"""
         files_content = []
         for file in files:
@@ -42,7 +42,7 @@ class ParseSession:
                     file_name = file.file_name
                 )
             )
-        return "\n".join(files_content)
+        return files_content
     
     def parse_fragment(self, fragment: Fragment) -> str:
         match fragment.type:
@@ -98,17 +98,17 @@ class ParseSession:
             files = self.parse_files(message.files),
             model = message.model,
             inserted_at = message.inserted_time(),
-            fragments_content = "\n".join(fragments_string),
+            fragments_content = fragments_string,
         )
 
-    def parse_chain_nodes(self, nodes: List[Nodes]) -> str:
+    def parse_chain_nodes(self, nodes: List[Nodes]) -> list[str]:
         """解析一条链上的所有节点，返回合并后的内容"""
-        chain_content = []
+        chain_content: list[str] = []
         for node in nodes:
             if node.message:
                 chain_content.append(self.parse_message(node.message))
         
-        return "\n".join(chain_content)
+        return chain_content
 
     def find_all_paths(self, session: Session) -> List[List[str]]:
         """找到从root到所有叶子节点的路径"""
