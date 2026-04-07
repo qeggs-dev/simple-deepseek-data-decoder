@@ -1,3 +1,4 @@
+# deepseek_data_decoder/core.py
 import orjson
 from zipfile import ZipFile
 from pathlib import Path
@@ -5,6 +6,7 @@ from .models import Session
 from .parse_args import Args
 from .load_format_package import load_format_package
 from .parser import ParseSession
+from .chatbox_exporter import ChatboxExporter
 from jinja2.sandbox import SandboxedEnvironment
 import re
 
@@ -18,6 +20,7 @@ class Decoder:
         )
         self.illegal_chars = re.compile(r"[^\w\d]", re.UNICODE)
         self.template_env = SandboxedEnvironment()
+        self._export_to_chatbox = getattr(args, 'chatbox', False) or getattr(args, 'cb', False)
     
     def sanitize_filename(self, filename: str) -> str:
         sanitized = self.illegal_chars.sub("_", filename)
@@ -26,8 +29,18 @@ class Decoder:
         return sanitized.strip()
     
     def decode(self, path: str | Path):
+        # 如果启用ChatBox导出模式
+        if self._export_to_chatbox:
+            return self._decode_to_chatbox(path)
+        
+        # 原有的Markdown导出模式
+        return self._decode_to_markdown(path)
+    
+    def _decode_to_markdown(self, path: str | Path):
+        """导出为Markdown格式（原有逻辑）"""
         file_name_template = self.template_env.from_string(self._args.file_name)
         dir_name_template = self.template_env.from_string(self._args.dir_name)
+        
         with ZipFile(path, "r") as zip_file:
             conversations = orjson.loads(zip_file.read("conversations.json"))
             
@@ -69,4 +82,23 @@ class Decoder:
                     with open(output_path, "w", encoding="utf-8") as file:
                         file.write(parsed.text)
                     
-                    print(f"Decoded: {dir_name}/{file_name}")
+                    print(f"[Markdown] Exported: {dir_name}/{file_name}")
+    
+    def _decode_to_chatbox(self, path: str | Path):
+        """导出为ChatBox JSON格式"""
+        output_dir = Path(self._args.output)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        exporter = ChatboxExporter(output_dir)
+        
+        with ZipFile(path, "r") as zip_file:
+            conversations = orjson.loads(zip_file.read("conversations.json"))
+            
+            for conversation in conversations:
+                session = Session(**conversation)
+                exporter.add_session(session)
+                print(f"[ChatBox] Added: {session.title}")
+            
+            # 导出所有会话
+            output_path = exporter.export()
+            print(f"[ChatBox] Exported: {output_path}")
