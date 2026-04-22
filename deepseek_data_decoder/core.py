@@ -22,7 +22,25 @@ class Decoder:
         self.illegal_chars = re.compile(r"[^\w\d]", re.UNICODE)
         self.template_env = SandboxedEnvironment()
         self._export_to_chatbox = getattr(args, 'chatbox', False) or getattr(args, 'cb', False)
-        self._export_by_date = getattr(args, 'by_date', False) or getattr(args, 'date', False)
+        
+        # Grouping mode: 'day', 'month', 'year', or None
+        self._group_mode = None
+        if getattr(args, 'group_day', False):
+            self._group_mode = 'day'
+        elif getattr(args, 'group_month', False):
+            self._group_mode = 'month'
+        elif getattr(args, 'group_year', False):
+            self._group_mode = 'year'
+    
+    def _get_group_key(self, dt) -> str:
+        """Get grouping key based on mode"""
+        if self._group_mode == 'day':
+            return dt.strftime("%Y-%m-%d")
+        elif self._group_mode == 'month':
+            return dt.strftime("%Y-%m")
+        elif self._group_mode == 'year':
+            return dt.strftime("%Y")
+        return None
     
     def sanitize_filename(self, filename: str) -> str:
         sanitized = self.illegal_chars.sub("_", filename)
@@ -86,51 +104,53 @@ class Decoder:
                     print(f"[Markdown] [{idx}/{total}] Exported: {dir_name}/{file_name}")
     
     def _decode_to_chatbox(self, path: str | Path):
-        """Export to ChatBox JSON format with optional date-based grouping"""
+        """Export to ChatBox JSON format with optional grouping (day/month/year)"""
         output_dir = Path(self._args.output)
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Group sessions by date if enabled
-        sessions_by_date: Dict[str, List[Session]] = {}
+        sessions_by_group: Dict[str, List[Session]] = {}
         
         with ZipFile(path, "r") as zip_file:
             conversations = orjson.loads(zip_file.read("conversations.json"))
             total = len(conversations)
             
-            print(f"[ChatBox] Loading {total} conversation(s)...")
+            mode_names = {'day': 'day', 'month': 'month', 'year': 'year'}
+            mode_name = mode_names.get(self._group_mode, 'none')
+            print(f"[ChatBox] Loading {total} conversation(s) (group mode: {mode_name})...")
             
             for conversation in conversations:
                 session = Session(**conversation)
                 
-                if self._export_by_date:
-                    date_key = session.updated_time().strftime("%Y-%m-%d")
-                    if date_key not in sessions_by_date:
-                        sessions_by_date[date_key] = []
-                    sessions_by_date[date_key].append(session)
+                if self._group_mode:
+                    group_key = self._get_group_key(session.updated_time())
+                    if group_key not in sessions_by_group:
+                        sessions_by_group[group_key] = []
+                    sessions_by_group[group_key].append(session)
                 else:
                     # Single file mode: collect all sessions
                     exporter = ChatboxExporter(output_dir, by_date=False)
                     exporter.add_session(session)
             
-            if self._export_by_date:
-                # Date-based export mode
-                date_count = len(sessions_by_date)
-                print(f"[ChatBox] Date-based export mode enabled, {date_count} date group(s) found")
+            if self._group_mode:
+                # Group-based export mode
+                group_count = len(sessions_by_group)
+                print(f"[ChatBox] Group-based export mode enabled, {group_count} group(s) found")
                 
-                for date_key, date_sessions in sessions_by_date.items():
-                    date_dir = output_dir / date_key
-                    date_dir.mkdir(parents=True, exist_ok=True)
+                for group_key, group_sessions in sessions_by_group.items():
+                    group_dir = output_dir / group_key
+                    group_dir.mkdir(parents=True, exist_ok=True)
                     
-                    exporter = ChatboxExporter(date_dir, by_date=False)
-                    for session in date_sessions:
+                    exporter = ChatboxExporter(group_dir, by_date=False)
+                    for session in group_sessions:
                         exporter.add_session(session)
                     
                     output_path = exporter.export()
-                    print(f"[ChatBox] Exported {len(date_sessions)} session(s) to: {date_key}/chatbox_export.json")
+                    print(f"[ChatBox] Exported {len(group_sessions)} session(s) to: {group_key}/chatbox_export.json")
                 
                 # Generate summary file with all sessions
                 all_exporter = ChatboxExporter(output_dir, by_date=False)
-                for sessions in sessions_by_date.values():
+                for sessions in sessions_by_group.values():
                     for session in sessions:
                         all_exporter.add_session(session)
                 all_output = all_exporter.export()

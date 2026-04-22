@@ -8,6 +8,8 @@ class FragmentType(StrEnum):
     THINK = "THINK"
     SEARCH = "SEARCH"
     READ_LINK = "READ_LINK"
+    TOOL_SEARCH = "TOOL_SEARCH"
+    TOOL_OPEN = "TOOL_OPEN"
 
 class SearchResult(BaseModel):
     url: str = ""
